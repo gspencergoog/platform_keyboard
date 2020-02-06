@@ -7,6 +7,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import 'keyboard_vm_entry.dart';
+
 /// Defines the interface for keyboard key events.
 ///
 /// Raw key events pass through as much information as possible from the
@@ -35,9 +37,10 @@ abstract class KeyEvent extends Diagnosticable {
   /// Initializes fields for subclasses, and provides a const constructor for
   /// const subclasses.
   const KeyEvent({
-    this.logicalKey,
-    this.physicalKey,
-    this.character,
+    @required this.timestamp,
+    @required this.logicalKey,
+    @required this.physicalKey,
+    @required this.character,
   });
 
   /// Returns true if the given [KeyboardKey] is pressed.
@@ -83,6 +86,11 @@ abstract class KeyEvent extends Diagnosticable {
   bool get isMetaPressed {
     return isKeyPressed(LogicalKeyboardKey.metaLeft) || isKeyPressed(LogicalKeyboardKey.metaRight);
   }
+
+  /// Time of event, relative to an arbitrary start point.
+  ///
+  /// All events share the same start point.
+  final Duration timestamp;
 
   /// Returns an object representing the physical location of this key.
   ///
@@ -165,10 +173,11 @@ abstract class KeyEvent extends Diagnosticable {
 class KeyDownEvent extends KeyEvent {
   /// Creates a key event that represents the user pressing a key.
   const KeyDownEvent({
+    @required Duration timestamp,
     @required LogicalKeyboardKey logicalKey,
     @required PhysicalKeyboardKey physicalKey,
     String character,
-  }) : super(logicalKey: logicalKey, physicalKey: physicalKey, character: character);
+  }) : super(timestamp: timestamp, logicalKey: logicalKey, physicalKey: physicalKey, character: character);
 }
 
 /// The user has released a key on the keyboard.
@@ -179,22 +188,14 @@ class KeyDownEvent extends KeyEvent {
 class KeyUpEvent extends KeyEvent {
   /// Creates a key event that represents the user releasing a key.
   const KeyUpEvent({
+    @required Duration timestamp,
     @required LogicalKeyboardKey logicalKey,
     @required PhysicalKeyboardKey physicalKey,
     String character,
-  }) : super(logicalKey: logicalKey, physicalKey: physicalKey, character: character);
+  }) : super(timestamp: timestamp, logicalKey: logicalKey, physicalKey: physicalKey, character: character);
 }
 
 typedef KeyboardListener = bool Function(KeyEvent event);
-
-class _KeyEventPacket {
-  _KeyEventPacket.unpack(ByteData packet) {
-    // Unpack packet …
-  }
-  KeyEvent event;
-  Set<LogicalKeyboardKey> keysPressed;
-  Set<PhysicalKeyboardKey> physicalKeysPressed;
-}
 
 /// An interface for listening to raw key events.
 ///
@@ -238,7 +239,7 @@ class HardwareKeyboard {
   //
   // If the set of keys pressed changes when no event is fired (e.g. as a result
   // of a focus change), packet.event may be null.
-  bool handleKeyEvent(_KeyEventPacket packet) {
+  bool handleKeyEvent(KeyEventPacket packet) {
     KeyEvent event = packet.event;
 
     // Update the state of the keyboard before the event, since the state should

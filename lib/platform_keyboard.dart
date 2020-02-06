@@ -4,4 +4,4 @@
 
 library platform_keyboard;
 
-export 'keyboard.dart';
+export 'hardware_keyboard.dart';
