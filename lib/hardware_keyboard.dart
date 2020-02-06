@@ -40,7 +40,6 @@ abstract class KeyEvent extends Diagnosticable {
     @required this.timestamp,
     @required this.logicalKey,
     @required this.physicalKey,
-    @required this.character,
   });
 
   /// Returns true if the given [KeyboardKey] is pressed.
@@ -135,6 +134,29 @@ abstract class KeyEvent extends Diagnosticable {
   /// {@endtemplate}
   final LogicalKeyboardKey logicalKey;
 
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(DiagnosticsProperty<Duration>('timestamp', timestamp));
+    properties.add(DiagnosticsProperty<LogicalKeyboardKey>('logicalKey', logicalKey));
+    properties.add(DiagnosticsProperty<PhysicalKeyboardKey>('physicalKey', physicalKey));
+  }
+}
+
+/// The user has pressed a key on the keyboard.
+///
+/// See also:
+///
+///  * [RawKeyboard], which uses this interface to expose key data.
+class KeyDownEvent extends KeyEvent {
+  /// Creates a key event that represents the user pressing a key.
+  const KeyDownEvent({
+    @required Duration timestamp,
+    @required LogicalKeyboardKey logicalKey,
+    @required PhysicalKeyboardKey physicalKey,
+    this.character,
+  }) : super(timestamp: timestamp, logicalKey: logicalKey, physicalKey: physicalKey);
+
   /// Returns the Unicode character (grapheme cluster) completed by this
   /// keystroke, if any.
   ///
@@ -154,30 +176,15 @@ abstract class KeyEvent extends Diagnosticable {
   /// composing text, use the [TextField] or [CupertinoTextField] widgets, since
   /// those automatically handle many of the complexities of managing keyboard
   /// input.
+  ///
+  /// Returns null if there is no character for this event.
   final String character;
 
   @override
   void debugFillProperties(DiagnosticPropertiesBuilder properties) {
     super.debugFillProperties(properties);
-    properties.add(DiagnosticsProperty<LogicalKeyboardKey>('logicalKey', logicalKey));
-    properties.add(DiagnosticsProperty<PhysicalKeyboardKey>('physicalKey', physicalKey));
     properties.add(StringProperty('character', character));
   }
-}
-
-/// The user has pressed a key on the keyboard.
-///
-/// See also:
-///
-///  * [RawKeyboard], which uses this interface to expose key data.
-class KeyDownEvent extends KeyEvent {
-  /// Creates a key event that represents the user pressing a key.
-  const KeyDownEvent({
-    @required Duration timestamp,
-    @required LogicalKeyboardKey logicalKey,
-    @required PhysicalKeyboardKey physicalKey,
-    String character,
-  }) : super(timestamp: timestamp, logicalKey: logicalKey, physicalKey: physicalKey, character: character);
 }
 
 /// The user has released a key on the keyboard.
@@ -191,11 +198,10 @@ class KeyUpEvent extends KeyEvent {
     @required Duration timestamp,
     @required LogicalKeyboardKey logicalKey,
     @required PhysicalKeyboardKey physicalKey,
-    String character,
-  }) : super(timestamp: timestamp, logicalKey: logicalKey, physicalKey: physicalKey, character: character);
+  }) : super(timestamp: timestamp, logicalKey: logicalKey, physicalKey: physicalKey);
 }
 
-typedef KeyboardListener = bool Function(KeyEvent event);
+typedef HardwareKeyboardEventCallback = bool Function(KeyEvent event);
 
 /// An interface for listening to raw key events.
 ///
@@ -223,24 +229,37 @@ class HardwareKeyboard {
 
   static final HardwareKeyboard instance = HardwareKeyboard._();
 
-  final List<KeyboardListener> _listeners = <KeyboardListener>[];
+  final List<HardwareKeyboardEventCallback> _listeners = <HardwareKeyboardEventCallback>[];
 
   /// Calls the listener every time the user presses or releases a key.
   ///
   /// Listeners can be removed with [removeListener].
-  void addListener(KeyboardListener listener) => _listeners.add(listener);
+  void addListener(HardwareKeyboardEventCallback listener) => _listeners.add(listener);
 
   /// Stop calling the listener every time the user presses or releases a key.
   ///
   /// Listeners can be added with [addListener].
-  void removeListener(KeyboardListener listener) => _listeners.remove(listener);
+  void removeListener(HardwareKeyboardEventCallback listener) => _listeners.remove(listener);
 
   // Called by the platform code to pass along a synchronous key event.
   //
   // If the set of keys pressed changes when no event is fired (e.g. as a result
   // of a focus change), packet.event may be null.
+  //
+  // Returns true if any [KeyboardListener] returned true.
   bool handleKeyEvent(KeyEventPacket packet) {
-    KeyEvent event = packet.event;
+    KeyEvent event;
+    switch (packet.eventType) {
+      case KeyEventPacketType.down:
+        event = KeyDownEvent(logicalKey: packet.logicalKey, physicalKey: packet.physicalKey, timestamp: packet.timestamp, character: packet.character);
+        break;
+      case KeyEventPacketType.up:
+        event = KeyUpEvent(logicalKey: packet.logicalKey, physicalKey: packet.physicalKey, timestamp: packet.timestamp);
+        break;
+      case KeyEventPacketType.sync:
+        // Sync only synchronizes the keys down, it doesn't generate an event.
+        break;
+    }
 
     // Update the state of the keyboard before the event, since the state should
     // include the result of the event.
@@ -251,7 +270,7 @@ class HardwareKeyboard {
       return false;
     }
     bool handled = false;
-    for (final KeyboardListener listener in List<KeyboardListener>.from(_listeners)) {
+    for (final HardwareKeyboardEventCallback listener in List<HardwareKeyboardEventCallback>.from(_listeners)) {
       if (_listeners.contains(listener)) {
         if (listener(event) == true) {
           handled = true;
