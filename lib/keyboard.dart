@@ -187,20 +187,6 @@ class KeyUpEvent extends KeyEvent {
 
 typedef KeyboardListener = bool Function(KeyEvent event);
 
-@pragma('vm:entry-point')
-// ignore: unused_element
-bool _dispatchKeyEvent(ByteData packet) {
-  // Runs in the zone where the instance was created.
-  if (identical(HardwareKeyboard.instance._dispatchKeyEventZone, Zone.current)) {
-    return HardwareKeyboard.instance._handleKeyEvent(_KeyEventPacket.unpack(packet));
-  } else {
-    return HardwareKeyboard.instance._dispatchKeyEventZone.runUnary<bool, _KeyEventPacket>(
-      HardwareKeyboard.instance._handleKeyEvent,
-      _KeyEventPacket.unpack(packet),
-    );
-  }
-}
-
 class _KeyEventPacket {
   _KeyEventPacket.unpack(ByteData packet) {
     // Unpack packet …
@@ -230,11 +216,9 @@ class _KeyEventPacket {
 class HardwareKeyboard {
   // Private to prevent instantiation or subclassing except through calling
   // instance.
-  HardwareKeyboard._() {
-    _dispatchKeyEventZone = Zone.current;
-  }
+  HardwareKeyboard._() : dispatchKeyEventZone = Zone.current;
 
-  Zone _dispatchKeyEventZone;
+  final Zone dispatchKeyEventZone;
 
   static final HardwareKeyboard instance = HardwareKeyboard._();
 
@@ -254,7 +238,7 @@ class HardwareKeyboard {
   //
   // If the set of keys pressed changes when no event is fired (e.g. as a result
   // of a focus change), packet.event may be null.
-  bool _handleKeyEvent(_KeyEventPacket packet) {
+  bool handleKeyEvent(_KeyEventPacket packet) {
     KeyEvent event = packet.event;
 
     // Update the state of the keyboard before the event, since the state should
