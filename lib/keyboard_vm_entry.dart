@@ -91,6 +91,12 @@ enum KeyEventPacketType {
   down, // 0
   up, // 1
   sync, // 2
+  cancel, // 3
+}
+
+enum KeyEventResponse {
+  skip, // 0
+  handled, // 1
 }
 
 /// An interface for describing platform key events to
@@ -113,10 +119,6 @@ abstract class KeyEventPacket extends Diagnosticable {
 
   PhysicalKeyboardKey get physicalKey;
 
-  Set<LogicalKeyboardKey> get keysPressed;
-
-  Set<PhysicalKeyboardKey> get physicalKeysPressed;
-
   String get character;
 }
 
@@ -126,136 +128,107 @@ class PlatformKeyEventPacket extends KeyEventPacket {
 
   PlatformKeyEventPacket.unpack(ByteData packet)
       : assert(packet != null),
-        data = StandardMessageCodec().decodeMessage(packet) {
+        data = const StandardMessageCodec().decodeMessage(packet) as Map<int, dynamic> {
     assert(data != null, 'data packet not decoded properly');
 
-    // validate field numbers
+    // Validate field index contract.
     assert(data.keys.where((int value) => !_kEventFields.contains(value)).isEmpty);
     assert(data[_kPayload] != null, 'Missing event payload data');
-    assert(data[_kPayload].keys.where((int value) => !_kPayloadFields.contains(value)).isEmpty);
+    assert((){
+      return data[_kPayload].keys.where((int value) => !_kPayloadFields.contains(value)).isEmpty == true;
+    }());
 
-    // validate parsed data.
+    // Validate field data contract.
     assert(timestamp != null);
     assert(eventType != null);
+    assert(logicalKey != null);
+    assert(physicalKey != null);
     assert(eventType == KeyEventPacketType.down || character == null, 'character only valid on down events');
-    assert(eventType != KeyEventPacketType.sync || logicalKey == null, 'sync events must not have a logical key');
-    assert(eventType != KeyEventPacketType.sync || physicalKey == null, 'sync events must not have a physical key');
-    assert(eventType != KeyEventPacketType.sync || keysPressed != null, 'sync events must have logical keys pressed');
-    assert(eventType != KeyEventPacketType.sync || physicalKeysPressed != null, 'sync events must have physical keys pressed');
-    assert(eventType == KeyEventPacketType.sync || logicalKey != null, 'key up/down events must have a logical key');
-    assert(eventType == KeyEventPacketType.sync || physicalKey != null, 'key up/down events must have a physical key');
   }
 
   final Map<int, dynamic> data;
 
-  Duration get timestamp => Duration(microseconds: data[_kTimestamp]);
+  @override
+  Duration get timestamp => _timestamp ??= Duration(microseconds: data[_kTimestamp] as int);
+  Duration _timestamp;
 
-  KeyEventPacketType _keyEventPacketType;
+  @override
   KeyEventPacketType get eventType {
     if (_keyEventPacketType == null) {
-      KeyEventPacketType type = KeyEventPacketType.values[data[_kEventType]];
+      final KeyEventPacketType type = KeyEventPacketType.values[data[_kEventType] as int];
       assert(() {
         switch (type) {
           case KeyEventPacketType.down:
           case KeyEventPacketType.up:
           case KeyEventPacketType.sync:
+          case KeyEventPacketType.cancel:
             return true;
           default:
             return false;
         }
-      }(), 'Unknown key event type $eventType');
+      }(), 'Unknown key event type $type');
       _keyEventPacketType = type;
     }
     return _keyEventPacketType;
   }
+  KeyEventPacketType _keyEventPacketType;
 
-  LogicalKeyboardKey _getLogicalKey(Map<int, dynamic> keyData) {
-    assert(keyData.keys.where((int value) => !_kLogicalKeyFields.contains(value)).isEmpty);
-    int keyId = keyData[_kLogicalKeyId];
-    LogicalKeyboardKey key = LogicalKeyboardKey.findKeyByKeyId(keyId);
-    if (key == null) {
-      String keyLabel = keyData[_kLogicalKeyLabel];
-      key = LogicalKeyboardKey(
-        keyId,
-        keyLabel: keyLabel,
-        debugName: kReleaseMode ? null : 'Key ${keyLabel.toUpperCase()}',
-      );
-    }
-    return key;
-  }
-
+  @override
   LogicalKeyboardKey get logicalKey {
-    switch (eventType) {
-      case KeyEventPacketType.down:
-      case KeyEventPacketType.up:
-        return _getLogicalKey(data[_kPayload][_kLogicalKey]);
-      case KeyEventPacketType.sync:
-        return null;
+    if (_logicalKey == null) {
+      final Map<int, dynamic> keyData = data[_kPayload][_kLogicalKey] as Map<int, dynamic>;
+      assert(keyData.keys.where((int value) => !_kLogicalKeyFields.contains(value)).isEmpty);
+      final int keyId = keyData[_kLogicalKeyId] as int;
+      LogicalKeyboardKey key = LogicalKeyboardKey.findKeyByKeyId(keyId);
+      if (key == null) {
+        final String keyLabel = keyData[_kLogicalKeyLabel] as String;
+        key = LogicalKeyboardKey(
+          keyId,
+          keyLabel: keyLabel,
+          debugName: kReleaseMode ? null : 'Key ${keyLabel.toUpperCase()}',
+        );
+      }
+      _logicalKey = key;
     }
-    assert(false, 'unhandled event type $eventType');
-    return null;
+    return _logicalKey;
   }
+  LogicalKeyboardKey _logicalKey;
 
-  PhysicalKeyboardKey _getPhysicalKey(Map<int, dynamic> keyData) {
-    assert(keyData.keys.where((int value) => !_kPhysicalKeyFields.contains(value)).isEmpty);
-    int usbHidUsage = keyData[_kPhysicalKeyId];
-    PhysicalKeyboardKey key = PhysicalKeyboardKey.findKeyByCode(usbHidUsage);
-    if (key == null) {
-      String keyLabel = keyData[_kPhysicalKeyLabel];
-      key = PhysicalKeyboardKey(
-        usbHidUsage,
-        debugName: kReleaseMode ? null : 'Key ${keyLabel.toUpperCase()}',
-      );
-    }
-    return key;
-  }
-
+  @override
   PhysicalKeyboardKey get physicalKey {
-    switch (eventType) {
-      case KeyEventPacketType.down:
-      case KeyEventPacketType.up:
-        return _getPhysicalKey(data[_kPayload][_kPhysicalKey]);
-      case KeyEventPacketType.sync:
-        return null;
+    if (_physicalKey == null) {
+      final Map<int, dynamic> keyData = data[_kPayload][_kPhysicalKey] as Map<int, dynamic>;
+      assert(keyData.keys.where((int value) => !_kPhysicalKeyFields.contains(value)).isEmpty);
+      final int usbHidUsage = keyData[_kPhysicalKeyId] as int;
+      PhysicalKeyboardKey key = PhysicalKeyboardKey.findKeyByCode(usbHidUsage);
+      if (key == null) {
+        final String keyLabel = keyData[_kPhysicalKeyLabel] as String;
+        key = PhysicalKeyboardKey(
+          usbHidUsage,
+          debugName: kReleaseMode ? null : 'Key ${keyLabel.toUpperCase()}',
+        );
+      }
+      _physicalKey = key;
     }
-    assert(false, 'unhandled event type $eventType');
-    return null;
+    return _physicalKey;
   }
+  PhysicalKeyboardKey _physicalKey;
 
-  Set<LogicalKeyboardKey> get keysPressed {
-    List<Map<int, dynamic>> keyListData = data[_kPayload][_kLogicalKeysPressed];
-    assert(keyListData != null, 'logical keys pressed data missing in event payload');
-    Set<LogicalKeyboardKey> keysPressed = <LogicalKeyboardKey>{};
-    for (final Map<int, dynamic> keyData in keyListData) {
-      keysPressed.add(_getLogicalKey(keyData));
-    }
-    return keysPressed;
-  }
-
-  Set<PhysicalKeyboardKey> get physicalKeysPressed {
-    List<Map<int, dynamic>> keyListData = data[_kPayload][_kPhysicalKeysPressed];
-    assert(keyListData != null, 'physical keys pressed data missing in event payload');
-    Set<PhysicalKeyboardKey> keysPressed = <PhysicalKeyboardKey>{};
-    for (final Map<int, dynamic> keyData in keyListData) {
-      keysPressed.add(_getPhysicalKey(keyData));
-    }
-    return keysPressed;
-  }
-
+  @override
   String get character {
     // Character data is optional.
-    return eventType == KeyEventPacketType.down ? data[_kPayload][_kCharacterProduced] : null;
+    return eventType == KeyEventPacketType.down ? data[_kPayload][_kCharacterProduced] as String: null;
   }
 }
 
 @pragma('vm:entry-point')
 // ignore: unused_element
-bool _dispatchKeyEvent(ByteData packet) {
+KeyEventResponse _dispatchKeyEvent(ByteData packet) {
   // Runs in the zone where the instance was created.
   if (identical(HardwareKeyboard.instance.dispatchKeyEventZone, Zone.current)) {
     return HardwareKeyboard.instance.handleKeyEvent(PlatformKeyEventPacket.unpack(packet));
   } else {
-    return HardwareKeyboard.instance.dispatchKeyEventZone.runUnary<bool, PlatformKeyEventPacket>(
+    return HardwareKeyboard.instance.dispatchKeyEventZone.runUnary<KeyEventResponse, PlatformKeyEventPacket>(
       HardwareKeyboard.instance.handleKeyEvent,
       PlatformKeyEventPacket.unpack(packet),
     );
@@ -281,22 +254,14 @@ class SimulatedKeyEventPacket extends KeyEventPacket {
   const SimulatedKeyEventPacket({
     @required this.timestamp,
     @required this.eventType,
-    this.logicalKey,
-    this.physicalKey,
+    @required this.logicalKey,
+    @required this.physicalKey,
     this.character,
-    Set<LogicalKeyboardKey> keysPressed,
-    Set<PhysicalKeyboardKey> physicalKeysPressed,
   })  : assert(timestamp != null),
         assert(eventType != null),
-        assert(eventType == KeyEventPacketType.down || character == null, 'character only valid on down events'),
-        assert(eventType != KeyEventPacketType.sync || logicalKey == null, 'sync events must not have a logical key'),
-        assert(eventType != KeyEventPacketType.sync || physicalKey == null, 'sync events must not have a physical key'),
-        assert(eventType != KeyEventPacketType.sync || keysPressed != null, 'sync events must have logical keys pressed'),
-        assert(eventType != KeyEventPacketType.sync || physicalKeysPressed != null, 'sync events must have physical keys pressed'),
-        assert(eventType == KeyEventPacketType.sync || logicalKey != null, 'key up/down events must have a logical key'),
-        assert(eventType == KeyEventPacketType.sync || physicalKey != null, 'key up/down events must have a physical key'),
-        _keysPressed = keysPressed,
-        _physicalKeysPressed = physicalKeysPressed;
+        assert(logicalKey != null, 'key up/down events must have a logical key'),
+        assert(physicalKey != null, 'key up/down events must have a physical key'),
+        assert(eventType == KeyEventPacketType.down || character == null, 'character only valid on down events');
 
   @override
   final Duration timestamp;
@@ -311,43 +276,5 @@ class SimulatedKeyEventPacket extends KeyEventPacket {
   final PhysicalKeyboardKey physicalKey;
 
   @override
-  final String character;
-
-  @override
-  Set<LogicalKeyboardKey> get keysPressed {
-    if (_keysPressed != null) {
-      return _keysPressed;
-    }
-    switch (eventType) {
-      case KeyEventPacketType.down:
-        return HardwareKeyboard.instance.keysPressed.union(<LogicalKeyboardKey>{logicalKey});
-      case KeyEventPacketType.up:
-        return HardwareKeyboard.instance.keysPressed.difference(<LogicalKeyboardKey>{logicalKey});
-      case KeyEventPacketType.sync:
-        return null;
-    }
-    assert(false, 'unhandled event type $eventType');
-    return null;
-  }
-
-  final Set<LogicalKeyboardKey> _keysPressed;
-
-  @override
-  Set<PhysicalKeyboardKey> get physicalKeysPressed {
-    if (_physicalKeysPressed != null) {
-      return _physicalKeysPressed;
-    }
-    switch (eventType) {
-      case KeyEventPacketType.down:
-        return HardwareKeyboard.instance.physicalKeysPressed.union(<PhysicalKeyboardKey>{physicalKey});
-      case KeyEventPacketType.up:
-        return HardwareKeyboard.instance.physicalKeysPressed.difference(<PhysicalKeyboardKey>{physicalKey});
-      case KeyEventPacketType.sync:
-        return null;
-    }
-    assert(false, 'unhandled event type $eventType');
-    return null;
-  }
-
-  final Set<PhysicalKeyboardKey> _physicalKeysPressed;
+  final String character; // Only used when event type is key down.
 }

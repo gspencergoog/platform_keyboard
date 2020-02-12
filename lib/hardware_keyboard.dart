@@ -48,44 +48,6 @@ abstract class KeyEvent extends Diagnosticable {
   /// Returns true if the given [KeyboardKey] is pressed.
   bool isPhysicalKeyPressed(PhysicalKeyboardKey key) => HardwareKeyboard.instance.physicalKeysPressed.contains(key);
 
-  /// Returns true if a CTRL modifier key is pressed, regardless of which side
-  /// of the keyboard it is on.
-  ///
-  /// Use [isKeyPressed] if you need to know which control key was pressed.
-  bool get isControlPressed {
-    return isKeyPressed(LogicalKeyboardKey.controlLeft) || isKeyPressed(LogicalKeyboardKey.controlRight);
-  }
-
-  /// Returns true if a SHIFT modifier key is pressed, regardless of which side
-  /// of the keyboard it is on.
-  ///
-  /// Use [isKeyPressed] if you need to know which shift key was pressed.
-  bool get isShiftPressed {
-    return isKeyPressed(LogicalKeyboardKey.shiftLeft) || isKeyPressed(LogicalKeyboardKey.shiftRight);
-  }
-
-  /// Returns true if a ALT modifier key is pressed, regardless of which side
-  /// of the keyboard it is on.
-  ///
-  /// Note that the ALTGR key that appears on some keyboards is considered to be
-  /// the same as [LogicalKeyboardKey.altRight] on some platforms (notably
-  /// Android). On platforms that can distinguish between `altRight` and
-  /// `altGr`, a press of `altGr` will not return true here, and will need to be
-  /// tested for separately.
-  ///
-  /// Use [isKeyPressed] if you need to know which alt key was pressed.
-  bool get isAltPressed {
-    return isKeyPressed(LogicalKeyboardKey.altLeft) || isKeyPressed(LogicalKeyboardKey.altRight);
-  }
-
-  /// Returns true if a META modifier key is pressed, regardless of which side
-  /// of the keyboard it is on.
-  ///
-  /// Use [isKeyPressed] if you need to know which meta key was pressed.
-  bool get isMetaPressed {
-    return isKeyPressed(LogicalKeyboardKey.metaLeft) || isKeyPressed(LogicalKeyboardKey.metaRight);
-  }
-
   /// Time of event, relative to an arbitrary start point.
   ///
   /// All events share the same start point.
@@ -201,25 +163,76 @@ class KeyUpEvent extends KeyEvent {
   }) : super(timestamp: timestamp, logicalKey: logicalKey, physicalKey: physicalKey);
 }
 
-typedef HardwareKeyboardEventCallback = bool Function(KeyEvent event);
-
-/// An interface for listening to raw key events.
+/// The user has released a key on the keyboard after the current application
+/// lost focus.
 ///
-/// Raw key events pass through as much information as possible from the
-/// underlying platform's key events, which makes them provide a high level of
-/// fidelity but a low level of portability.
+/// This is effectively a key up event, but is generated because the application
+/// lost focus before the key was released, and so the key up event was
+/// delivered to another application, or dropped by the operating system.
 ///
-/// A [Keyboard] is useful for listening to raw key events and hardware
-/// buttons that are represented as keys. Typically used by games and other apps
-/// that use keyboards for purposes other than text entry.
+/// The application is expected to update state related to this key event, but
+/// not to trigger user actions as a result of the event.
 ///
 /// See also:
 ///
-///  * [KeyDownEvent] and [KeyUpEvent], the classes used to describe
-///    specific raw key events.
-///  * [RawKeyboardListener], a widget that listens for raw key events.
-///  * [SystemChannels.keyEvent], the low-level channel used for receiving
-///    events from the system.
+///  * [RawKeyboard], which uses this interface to expose key data.
+class KeyCancelEvent extends KeyEvent {
+  /// Creates a key event that represents the user releasing a key outside of
+  /// the current focus.
+  const KeyCancelEvent({
+    @required Duration timestamp,
+    @required LogicalKeyboardKey logicalKey,
+    @required PhysicalKeyboardKey physicalKey,
+  }) : super(timestamp: timestamp, logicalKey: logicalKey, physicalKey: physicalKey);
+}
+
+/// The user has pressed a key on the keyboard before the current application
+/// gained focus.
+///
+/// This is effectively a key down event, but is generated because the application
+/// gained focus after the key was pressed, and so the key down was delivered to
+/// another application.
+///
+/// The application is expected to update state related to this key event, but
+/// not to trigger user actions as a result of the event.
+///
+/// See also:
+///
+///  * [RawKeyboard], which uses this interface to expose key data.
+class KeySyncEvent extends KeyEvent {
+  /// Creates a key event that represents the user releasing a key outside of
+  /// the current focus.
+  const KeySyncEvent({
+    @required Duration timestamp,
+    @required LogicalKeyboardKey logicalKey,
+    @required PhysicalKeyboardKey physicalKey,
+  }) : super(timestamp: timestamp, logicalKey: logicalKey, physicalKey: physicalKey);
+}
+
+typedef HardwareKeyboardEventCallback = bool Function(KeyEvent event);
+
+/// An singleton interface for listening to raw key events.
+///
+/// A [HardwareKeyboard] is useful for listening to key events and hardware
+/// buttons that are represented as keys. Typically used by games and other apps
+/// that use keyboards for purposes other than text entry.
+///
+/// Text entry is a much more complex affair than just listening to key events:
+/// input method editors, software keyboards, platform key mappings, and other
+/// details need to be taken into account to provide a good experience for
+/// users. Consequently, using the events generated by this class to enter text
+/// is discouraged. Instead, use [EditableText] to receive text input.
+///
+/// However, text input is not so useful for things like keyboard shortcuts and
+/// keyboard controlled gaming or editing. That is why this class exists.
+///
+/// See also:
+///
+///  * [KeyDownEvent], [KeyUpEvent], [KeyCancelEvent], and [KeySyncEvent], the
+///    classes used to describe specific key events.
+///  * [KeyboardListener], a widget that listens for key events.
+///  * [Shortcuts] and [Actions], widgets designed to allow binding sets of keys
+///    to actions.
 class HardwareKeyboard {
   // Private to prevent instantiation or subclassing except through calling
   // instance.
@@ -247,7 +260,7 @@ class HardwareKeyboard {
   // of a focus change), packet.event may be null.
   //
   // Returns true if any [KeyboardListener] returned true.
-  bool handleKeyEvent(KeyEventPacket packet) {
+  KeyEventResponse handleKeyEvent(KeyEventPacket packet) {
     KeyEvent event;
     switch (packet.eventType) {
       case KeyEventPacketType.down:
@@ -257,36 +270,113 @@ class HardwareKeyboard {
         event = KeyUpEvent(logicalKey: packet.logicalKey, physicalKey: packet.physicalKey, timestamp: packet.timestamp);
         break;
       case KeyEventPacketType.sync:
-        // Sync only synchronizes the keys down, it doesn't generate an event.
+        event = KeySyncEvent(logicalKey: packet.logicalKey, physicalKey: packet.physicalKey, timestamp: packet.timestamp);
+        break;
+      case KeyEventPacketType.cancel:
+        event = KeyCancelEvent(logicalKey: packet.logicalKey, physicalKey: packet.physicalKey, timestamp: packet.timestamp);
+      break;
+    }
+
+    // Update the state of the keyboard before sending the event to listeners,
+    // since the state should include the result of the event.
+    switch (packet.eventType) {
+      case KeyEventPacketType.down:
+      case KeyEventPacketType.sync:
+        _keysPressed.add(packet.logicalKey);
+        _physicalKeysPressed.add(packet.physicalKey);
+        break;
+      case KeyEventPacketType.up:
+      case KeyEventPacketType.cancel:
+        _keysPressed.remove(packet.logicalKey);
+        _physicalKeysPressed.remove(packet.physicalKey);
         break;
     }
 
-    // Update the state of the keyboard before the event, since the state should
-    // include the result of the event.
-    _keysPressed = packet.keysPressed;
-    _physicalKeysPressed = packet.physicalKeysPressed;
+    if (_listeners.isEmpty) {
+        return KeyEventResponse.skip;
+    }
 
-    if (event == null || _listeners.isEmpty) {
-      return false;
-    }
-    bool handled = false;
-    for (final HardwareKeyboardEventCallback listener in List<HardwareKeyboardEventCallback>.from(_listeners)) {
-      if (_listeners.contains(listener)) {
-        if (listener(event) == true) {
-          handled = true;
+    switch (packet.eventType) {
+      case KeyEventPacketType.down:
+      case KeyEventPacketType.up:
+        // Only key down/up can actually mark an event as "handled".  Sync and
+        // cancel always return "skip".
+        bool handled = false;
+        // Operate on a copy so that if listeners are removed during execution, the list is still sane.
+        for (final HardwareKeyboardEventCallback listener in List<HardwareKeyboardEventCallback>.from(_listeners)) {
+          if (_listeners.contains(listener)) {
+            if (listener(event) == true) {
+              handled = true;
+            }
+          }
         }
-      }
+        return handled ? KeyEventResponse.handled : KeyEventResponse.skip;
+      case KeyEventPacketType.sync:
+      case KeyEventPacketType.cancel:
+        // Operate on a copy so that if listeners are removed during execution, the list is still sane.
+        for (final HardwareKeyboardEventCallback listener in List<HardwareKeyboardEventCallback>.from(_listeners)) {
+          if (_listeners.contains(listener)) {
+            listener(event);
+          }
+        }
+        break;
     }
-    return handled;
+    return KeyEventResponse.skip;
   }
 
+  /// Returns true if the logical `key` is currently pressed.
+  ///
+  /// See also:
+  ///
+  ///  * [LogicalKeyboardKey] for information about what a logical key represents.
+  bool isKeyPressed(LogicalKeyboardKey key) {
+    return _keysPressed.intersection(<LogicalKeyboardKey>{key, ...key.synonyms}).isNotEmpty;
+  }
+
+  /// Returns true if the physical `key` is currently pressed.
+  ///
+  /// See also:
+  ///
+  ///  * [PhysicalKeyboardKey] for information about what a physical key represents.
+  bool isPhysicalKeyPressed(PhysicalKeyboardKey key) => _physicalKeysPressed.contains(key);
+
+  /// Returns true if a CTRL modifier key is pressed, regardless of which side
+  /// of the keyboard it is on.
+  ///
+  /// Use [isKeyPressed] if you need to know which control key was pressed.
+  bool get isControlPressed => isKeyPressed(LogicalKeyboardKey.control);
+
+  /// Returns true if a SHIFT modifier key is pressed, regardless of which side
+  /// of the keyboard it is on.
+  ///
+  /// Use [isKeyPressed] if you need to know which shift key was pressed.
+  bool get isShiftPressed => isKeyPressed(LogicalKeyboardKey.shift);
+
+  /// Returns true if a ALT modifier key is pressed, regardless of which side
+  /// of the keyboard it is on.
+  ///
+  /// Note that the ALTGR key that appears on some keyboards is considered to be
+  /// the same as [LogicalKeyboardKey.altRight] on some platforms (notably
+  /// Android). On platforms that can distinguish between `altRight` and
+  /// `altGr`, a press of `altGr` will not return true here, and will need to be
+  /// tested for separately.
+  ///
+  /// Use [isKeyPressed] if you need to know which alt key was pressed.
+  bool get isAltPressed => isKeyPressed(LogicalKeyboardKey.alt);
+
+  /// Returns true if a META modifier key is pressed, regardless of which side
+  /// of the keyboard it is on.
+  ///
+  /// Use [isKeyPressed] if you need to know which meta key was pressed.
+  bool get isMetaPressed => isKeyPressed(LogicalKeyboardKey.meta);
+
   /// Returns the set of logical keys currently pressed.
-  Set<LogicalKeyboardKey> get keysPressed => _keysPressed.toSet();
-  Set<LogicalKeyboardKey> _keysPressed = <LogicalKeyboardKey>{};
+  Set<LogicalKeyboardKey> get keysPressed => _keysPressed.toSet(); // Return a copy so it can't get messed up.
+  final Set<LogicalKeyboardKey> _keysPressed = <LogicalKeyboardKey>{};
 
   /// Returns the set of physical keys currently pressed.
-  Set<PhysicalKeyboardKey> get physicalKeysPressed => _physicalKeysPressed.toSet();
-  Set<PhysicalKeyboardKey> _physicalKeysPressed = <PhysicalKeyboardKey>{};
+  Set<PhysicalKeyboardKey> get physicalKeysPressed => _physicalKeysPressed.toSet(); // Return a copy so it can't get messed up.
+  final Set<PhysicalKeyboardKey> _physicalKeysPressed = <PhysicalKeyboardKey>{};
 
   /// Clears the list of keys returned from [keysPressed].
   ///
@@ -294,8 +384,8 @@ class HardwareKeyboard {
   @visibleForTesting
   void clearKeysPressed() {
     _keysPressed.clear();
-    // TODO(gspencergoog): Must we call the platform side to tell it to clear? This is just for
-    // tests, so maybe not...
+    // TODO(gspencergoog): Must we call the platform side to tell it to clear
+    // its state? This is just for tests, so maybe not...
   }
 
   /// Clears the list of keys returned from [physicalKeysPressed].
@@ -304,7 +394,7 @@ class HardwareKeyboard {
   @visibleForTesting
   void clearPhysicalKeysPressed() {
     _physicalKeysPressed.clear();
-    // TODO(gspencergoog): Must we call the platform side to tell it to clear? This is just for
-    // tests, so maybe not...
+    // TODO(gspencergoog): Must we call the platform side to tell it to clear
+    // its state? This is just for tests, so maybe not...
   }
 }

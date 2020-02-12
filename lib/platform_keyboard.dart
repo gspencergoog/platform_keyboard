@@ -5,3 +5,4 @@
 library platform_keyboard;
 
 export 'hardware_keyboard.dart';
+export 'keyboard_listener.dart';
