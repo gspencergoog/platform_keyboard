@@ -10,7 +10,7 @@ import 'hardware_keyboard.dart';
 /// A widget that calls a callback whenever the user presses or releases a key
 /// on a keyboard.
 ///
-/// A [KeyboardListener] is useful for listening to raw key events and
+/// A [HardwareKeyboardListener] is useful for listening to raw key events and
 /// hardware buttons that are represented as keys. Typically used by games and
 /// other apps that use keyboards for purposes other than text entry.
 ///
@@ -21,36 +21,26 @@ import 'hardware_keyboard.dart';
 ///
 ///  * [EditableText], which should be used instead of this widget for text
 ///    entry.
-class KeyboardListener extends StatefulWidget {
+class HardwareKeyboardListener extends StatefulWidget {
   /// Creates a widget that receives raw keyboard events.
   ///
   /// For text entry, consider using a [EditableText], which integrates with
   /// on-screen keyboards and input method editors (IMEs).
   ///
-  /// The [focusNode] and [child] arguments are required and must not be null.
-  ///
-  /// The [autofocus] argument must not be null.
-  const KeyboardListener({
+  /// The [child] argument is required and must not be null.
+  const HardwareKeyboardListener({
     Key key,
-    @required this.focusNode,
-    this.autofocus = false,
     this.onKey,
     @required this.child,
-  }) : assert(focusNode != null),
-        assert(autofocus != null),
-        assert(child != null),
-        super(key: key);
-
-  /// Controls whether this widget has keyboard focus.
-  final FocusNode focusNode;
-
-  /// {@macro flutter.widgets.Focus.autofocus}
-  final bool autofocus;
+  }) : assert(child != null), 
+       super(key: key);
 
   /// Called whenever this widget receives a raw keyboard event.
   ///
   /// Should return true if the key has been handled, and should not be
   /// propagated further.
+  ///
+  /// Does nothing if set to null.
   final HardwareKeyboardEventCallback onKey;
 
   /// The widget below this widget in the tree.
@@ -59,40 +49,24 @@ class KeyboardListener extends StatefulWidget {
   final Widget child;
 
   @override
-  _KeyboardListenerState createState() => _KeyboardListenerState();
+  _HardwareKeyboardListenerState createState() => _HardwareKeyboardListenerState();
 
   @override
   void debugFillProperties(DiagnosticPropertiesBuilder properties) {
     super.debugFillProperties(properties);
-    properties.add(DiagnosticsProperty<FocusNode>('focusNode', focusNode));
+    properties.add(FlagProperty('onKey', value: onKey != null, ifTrue: 'onKey'));
   }
 }
 
-class _KeyboardListenerState extends State<KeyboardListener> {
-  @override
-  void initState() {
-    super.initState();
-    widget.focusNode.addListener(_handleFocusChanged);
-  }
-
-  @override
-  void didUpdateWidget(KeyboardListener oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.focusNode != oldWidget.focusNode) {
-      oldWidget.focusNode.removeListener(_handleFocusChanged);
-      widget.focusNode.addListener(_handleFocusChanged);
-    }
-  }
-
+class _HardwareKeyboardListenerState extends State<HardwareKeyboardListener> {
   @override
   void dispose() {
-    widget.focusNode.removeListener(_handleFocusChanged);
     _detachKeyboardIfAttached();
     super.dispose();
   }
 
-  void _handleFocusChanged() {
-    if (widget.focusNode.hasFocus)
+  void _handleFocusChanged(bool value) {
+    if (value)
       _attachKeyboardIfDetached();
     else
       _detachKeyboardIfAttached();
@@ -114,17 +88,15 @@ class _KeyboardListenerState extends State<KeyboardListener> {
     _listening = false;
   }
 
-  bool _handleKeyEvent(KeyEvent event) {
-    if (widget.onKey != null)
-      return widget.onKey(event);
-    return false;
-  }
+  bool _handleKeyEvent(KeyEvent event) => widget.onKey?.call(event) ?? false;
 
   @override
   Widget build(BuildContext context) {
     return Focus(
-      focusNode: widget.focusNode,
-      autofocus: widget.autofocus,
+      onFocusChange: _handleFocusChanged,
+      canRequestFocus: false,
+      skipTraversal: true,
+      includeSemantics: false,
       child: widget.child,
     );
   }
