@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 import 'dart:async';
+import 'dart:collection';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -61,14 +62,10 @@ const Set<int> _kEventFields = <int>{
 // Payload field id constants.
 const int _kLogicalKey = 100; // LogicalKeyboardKey for this event
 const int _kPhysicalKey = 200; // PhysicalKeyboardKey for this event
-const int _kLogicalKeysPressed = 300; // a list of LogicalKeyboardKey parameters
-const int _kPhysicalKeysPressed = 400; // a list of PhysicalKeyboardKey parameters
-const int _kCharacterProduced = 500; // String: character produced by this key down, if any.
+const int _kCharacterProduced = 300; // String: character produced by this key down, if any.
 const Set<int> _kPayloadFields = <int>{
   _kLogicalKey,
   _kPhysicalKey,
-  _kLogicalKeysPressed,
-  _kPhysicalKeysPressed,
   _kCharacterProduced,
 };
 
@@ -100,14 +97,7 @@ enum KeyEventResponse {
 }
 
 /// An interface for describing platform key events to
-/// [HardwareKeyboard.handleKeyEvent].
-///
-/// See also:
-///
-///  * [PlatformKeyEventPacket], for a packet that parses raw [ByteData] from the
-///    platform and turns it into key event data.
-///  * [SimulatedKeyEventPacket], for a packet that simulates a key event from
-///    the platform.
+/// [HardwareKeyboard.handleKeyEventPacket].
 abstract class KeyEventPacket extends Diagnosticable {
   const KeyEventPacket();
 
@@ -122,21 +112,27 @@ abstract class KeyEventPacket extends Diagnosticable {
   String get character;
 }
 
-/// Interprets raw key event data sent from the engine to the framework.
-class PlatformKeyEventPacket extends KeyEventPacket {
-  PlatformKeyEventPacket(this.data);
+/// Interprets platform key event data sent from the engine to the framework.
+class _PlatformKeyEventPacket extends KeyEventPacket {
+  _PlatformKeyEventPacket(this.data);
 
-  PlatformKeyEventPacket.unpack(ByteData packet)
+  _PlatformKeyEventPacket.unpack(ByteData packet)
       : assert(packet != null),
-        data = const StandardMessageCodec().decodeMessage(packet) as Map<int, dynamic> {
+        data = const StandardMessageCodec().decodeMessage(packet) as LinkedHashMap<dynamic, dynamic> {
     assert(data != null, 'data packet not decoded properly');
 
     // Validate field index contract.
-    assert(data.keys.where((int value) => !_kEventFields.contains(value)).isEmpty);
+    assert(
+      data.keys.where((dynamic value) => !_kEventFields.contains(value as int)).isEmpty,
+      'Some event keys are not valid data keys: ${data.keys.where((dynamic value) => !_kEventFields.contains(value as int)).join(', ')}. '
+      'Valid keys are ${_kEventFields.join(', ')}',
+    );
     assert(data[_kPayload] != null, 'Missing event payload data');
-    assert((){
-      return data[_kPayload].keys.where((int value) => !_kPayloadFields.contains(value)).isEmpty == true;
-    }());
+    assert(
+      data[_kPayload].keys.where((dynamic value) => !_kPayloadFields.contains(value as int)).isEmpty == true,
+      'Some payload keys are not valid data keys: ${data[_kPayload].keys.where((dynamic value) => !_kPayloadFields.contains(value as int)).join(', ')}. '
+      'Valid keys are ${_kPayloadFields.join(', ')}',
+    );
 
     // Validate field data contract.
     assert(timestamp != null);
@@ -146,7 +142,7 @@ class PlatformKeyEventPacket extends KeyEventPacket {
     assert(eventType == KeyEventPacketType.down || character == null, 'character only valid on down events');
   }
 
-  final Map<int, dynamic> data;
+  final Map<dynamic, dynamic> data;
 
   @override
   Duration get timestamp => _timestamp ??= Duration(microseconds: data[_kTimestamp] as int);
@@ -176,8 +172,12 @@ class PlatformKeyEventPacket extends KeyEventPacket {
   @override
   LogicalKeyboardKey get logicalKey {
     if (_logicalKey == null) {
-      final Map<int, dynamic> keyData = data[_kPayload][_kLogicalKey] as Map<int, dynamic>;
-      assert(keyData.keys.where((int value) => !_kLogicalKeyFields.contains(value)).isEmpty);
+      final Map<dynamic, dynamic> keyData = data[_kPayload][_kLogicalKey] as Map<dynamic, dynamic>;
+      assert(
+        keyData.keys.where((dynamic value) => !_kLogicalKeyFields.contains(value as int)).isEmpty,
+        'Some logical data keys are not valid data keys: ${keyData.keys.where((dynamic value) => !_kLogicalKeyFields.contains(value as int)).join(', ')}. '
+        'Valid keys are ${_kLogicalKeyFields.join(', ')}',
+      );
       final int keyId = keyData[_kLogicalKeyId] as int;
       LogicalKeyboardKey key = LogicalKeyboardKey.findKeyByKeyId(keyId);
       if (key == null) {
@@ -197,8 +197,12 @@ class PlatformKeyEventPacket extends KeyEventPacket {
   @override
   PhysicalKeyboardKey get physicalKey {
     if (_physicalKey == null) {
-      final Map<int, dynamic> keyData = data[_kPayload][_kPhysicalKey] as Map<int, dynamic>;
-      assert(keyData.keys.where((int value) => !_kPhysicalKeyFields.contains(value)).isEmpty);
+      final Map<dynamic, dynamic> keyData = data[_kPayload][_kPhysicalKey] as Map<dynamic, dynamic>;
+      assert(
+        keyData.keys.where((dynamic value) => !_kPhysicalKeyFields.contains(value as int)).isEmpty,
+        'Some physical data keys are not valid data keys: ${keyData.keys.where((dynamic value) => !_kPhysicalKeyFields.contains(value as int)).join(', ')}. '
+        'Valid keys are ${_kPhysicalKeyFields.join(', ')}',
+      );
       final int usbHidUsage = keyData[_kPhysicalKeyId] as int;
       PhysicalKeyboardKey key = PhysicalKeyboardKey.findKeyByCode(usbHidUsage);
       if (key == null) {
@@ -216,65 +220,28 @@ class PlatformKeyEventPacket extends KeyEventPacket {
 
   @override
   String get character {
-    // Character data is optional.
+    assert(
+      eventType == KeyEventPacketType.down || data[_kPayload][_kCharacterProduced] == null,
+      'Only down events are allowed to have a character attribute.'
+    );
+    // Character data is optional on down events, forbidden on other events.
     return eventType == KeyEventPacketType.down ? data[_kPayload][_kCharacterProduced] as String: null;
   }
 }
 
+/// The entry point for the platform to send key event packets through to.
+/// This is not for general use: only public so that testing code can call it.
 @pragma('vm:entry-point')
+@visibleForTesting
 // ignore: unused_element
-KeyEventResponse _dispatchKeyEvent(ByteData packet) {
+KeyEventResponse dispatchKeyEvent(ByteData packet) {
   // Runs in the zone where the instance was created.
   if (identical(HardwareKeyboard.instance.dispatchKeyEventZone, Zone.current)) {
-    return HardwareKeyboard.instance.handleKeyEvent(PlatformKeyEventPacket.unpack(packet));
+    return HardwareKeyboard.instance.handleKeyEventPacket(_PlatformKeyEventPacket.unpack(packet));
   } else {
-    return HardwareKeyboard.instance.dispatchKeyEventZone.runUnary<KeyEventResponse, PlatformKeyEventPacket>(
-      HardwareKeyboard.instance.handleKeyEvent,
-      PlatformKeyEventPacket.unpack(packet),
+    return HardwareKeyboard.instance.dispatchKeyEventZone.runUnary<KeyEventResponse, _PlatformKeyEventPacket>(
+      HardwareKeyboard.instance.handleKeyEventPacket,
+      _PlatformKeyEventPacket.unpack(packet),
     );
   }
-}
-
-/// Used to simulate low level key events from the platform, generally used for
-/// testing.
-///
-/// To simulate an event, create one of these and pass it to
-/// [HardwareKeyboard.handleKeyEvent].
-///
-/// The [keysPressed] and [physicalKeysPressed] attributes should contain the state
-/// as if the event had already happened, so, for instance, [keysPressed] should
-/// contain [logicalKey] if this is a key down event, and not contain it if this
-/// is a key up event.
-///
-/// If keysPressed and/or physicalKeysPressed is null on a key up or down, it
-/// will use the current state of [HardwareKeyboard.keysPressed], and
-/// [HardwareKeyboard.physicalKeysPressed], respectively, and do the right thing
-/// with the supplied key values.
-class SimulatedKeyEventPacket extends KeyEventPacket {
-  const SimulatedKeyEventPacket({
-    @required this.timestamp,
-    @required this.eventType,
-    @required this.logicalKey,
-    @required this.physicalKey,
-    this.character,
-  })  : assert(timestamp != null),
-        assert(eventType != null),
-        assert(logicalKey != null, 'key up/down events must have a logical key'),
-        assert(physicalKey != null, 'key up/down events must have a physical key'),
-        assert(eventType == KeyEventPacketType.down || character == null, 'character only valid on down events');
-
-  @override
-  final Duration timestamp;
-
-  @override
-  final KeyEventPacketType eventType;
-
-  @override
-  final LogicalKeyboardKey logicalKey;
-
-  @override
-  final PhysicalKeyboardKey physicalKey;
-
-  @override
-  final String character; // Only used when event type is key down.
 }

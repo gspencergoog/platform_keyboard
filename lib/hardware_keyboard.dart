@@ -4,21 +4,20 @@
 
 import 'dart:async';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:platform_keyboard/keyboard_listener.dart';
 
 import 'keyboard_vm_entry.dart';
 
 /// Defines the interface for keyboard key events.
 ///
-/// Raw key events pass through as much information as possible from the
-/// underlying platform's key events, which allows them to provide a high level
-/// of fidelity but a low level of portability.
-///
-/// The event also provides an abstraction for the [physicalKey] and the
-/// [logicalKey], describing the physical location of the key, and the logical
-/// meaning of the key, respectively. These are more portable representations of
-/// the key events, and should produce the same results regardless of platform.
+/// The event provides an abstraction for the [physicalKey] and [logicalKey],
+/// describing the physical location of the key, and the logical meaning of the
+/// key, respectively. For [KeyDownEvent]s, the character produced by the event
+/// (if any) is also included.
 ///
 /// See also:
 ///
@@ -26,14 +25,18 @@ import 'keyboard_vm_entry.dart';
 ///    key.
 ///  * [PhysicalKeyboardKey], an object that describes the physical location of
 ///    a key.
-///  * [RawKeyDownEvent], a specialization for events representing the user
+///  * [KeyDownEvent], a subclass for events representing the user
 ///    pressing a key.
-///  * [RawKeyUpEvent], a specialization for events representing the user
+///  * [KeyUpEvent], a subclass for events representing the user
 ///    releasing a key.
-///  * [RawKeyboard], which uses this interface to expose key data.
-///  * [RawKeyboardListener], a widget that listens for raw key events.
+///  * [KeySyncEvent], a subclass for events representing the user
+///    pressing a key when Flutter doesn't have focus.
+///  * [KeyCancelEvent], a subclass for events representing the user
+///    releasing a key when Flutter doesn't have focus.
+///  * [HardwareKeyboard], which can be listened to for key events.
+///  * [HardwareKeyboardListener], a widget that listens for hardware key events.
 @immutable
-abstract class KeyEvent extends Diagnosticable {
+abstract class KeyEvent with DiagnosticableMixin implements Diagnosticable {
   /// Initializes fields for subclasses, and provides a const constructor for
   /// const subclasses.
   const KeyEvent({
@@ -42,20 +45,14 @@ abstract class KeyEvent extends Diagnosticable {
     @required this.physicalKey,
   });
 
-  /// Returns true if the given [KeyboardKey] is pressed.
-  bool isKeyPressed(LogicalKeyboardKey key) => HardwareKeyboard.instance.keysPressed.contains(key);
-
-  /// Returns true if the given [KeyboardKey] is pressed.
-  bool isPhysicalKeyPressed(PhysicalKeyboardKey key) => HardwareKeyboard.instance.physicalKeysPressed.contains(key);
-
   /// Time of event, relative to an arbitrary start point.
   ///
-  /// All events share the same start point.
+  /// All events share the same timestamp origin.
   final Duration timestamp;
 
   /// Returns an object representing the physical location of this key.
   ///
-  /// {@template flutter.services.RawKeyEvent.physicalKey}
+  /// {@template flutter.services.KeyEvent.physicalKey}
   /// The [PhysicalKeyboardKey] ignores the key map, modifier keys (like SHIFT),
   /// and the label on the key. It describes the location of the key as if it
   /// were on a QWERTY keyboard regardless of the keyboard mapping in effect.
@@ -71,7 +68,7 @@ abstract class KeyEvent extends Diagnosticable {
   /// CAPS LOCK produces a "Q" when pressed.
   ///
   /// If you want to make your app respond to a key with a particular character
-  /// on it regardless of location of the key, use [RawKeyEvent.logicalKey] instead.
+  /// on it regardless of location of the key, use [KeyEvent.logicalKey] instead.
   /// {@endtemplate}
   ///
   /// See also:
@@ -82,12 +79,12 @@ abstract class KeyEvent extends Diagnosticable {
 
   /// Returns an object representing the logical key that was pressed.
   ///
-  /// {@template flutter.services.RawKeyEvent.logicalKey}
+  /// {@template flutter.services.KeyEvent.logicalKey}
   /// This method takes into account the key map and modifier keys (like SHIFT)
   /// to determine which logical key to return.
   ///
   /// If you are looking for the character produced by a key event, use
-  /// [RawKeyEvent.character] instead.
+  /// [KeyEvent.character] instead.
   ///
   /// If you are collecting text strings, use the [TextField] or
   /// [CupertinoTextField] widgets, since those automatically handle many of the
@@ -105,11 +102,11 @@ abstract class KeyEvent extends Diagnosticable {
   }
 }
 
-/// The user has pressed a key on the keyboard.
+/// An event indicating that the user has pressed a key down on the keyboard.
 ///
 /// See also:
 ///
-///  * [RawKeyboard], which uses this interface to expose key data.
+///  * [HardwareKeyboard], which produces this event.
 class KeyDownEvent extends KeyEvent {
   /// Creates a key event that represents the user pressing a key.
   const KeyDownEvent({
@@ -123,21 +120,19 @@ class KeyDownEvent extends KeyEvent {
   /// keystroke, if any.
   ///
   /// This will only return a character if this keystroke, combined with any
-  /// preceding keystroke(s), generated a character, and only on a "key down"
-  /// event. It will return null if no character has been generated by the
-  /// keystroke (e.g. a "dead" or "combining" key), or if the corresponding key
-  /// is a key without a visual representation, such as a modifier key or a
-  /// control key.
+  /// preceding keystroke(s), generated a character. It will return null if no
+  /// character has been generated by the keystroke (e.g. a "dead" or
+  /// "combining" key), or if the corresponding key is a key without a visual
+  /// representation, such as a modifier key or a control key.
   ///
   /// This can return multiple Unicode code points, since some characters (more
   /// accurately referred to as grapheme clusters) are made up of more than one
   /// code point.
   ///
   /// The `character` doesn't take into account edits by an input method editor
-  /// (IME), or manage the visibility of the soft keyboard on touch devices. For
-  /// composing text, use the [TextField] or [CupertinoTextField] widgets, since
-  /// those automatically handle many of the complexities of managing keyboard
-  /// input.
+  /// (IME). For composing text, use the [TextField] or [CupertinoTextField]
+  /// widgets, since those automatically handle many of the complexities of
+  /// managing keyboard input.
   ///
   /// Returns null if there is no character for this event.
   final String character;
@@ -149,11 +144,11 @@ class KeyDownEvent extends KeyEvent {
   }
 }
 
-/// The user has released a key on the keyboard.
+/// An event indicating that the user has released a key on the keyboard.
 ///
 /// See also:
 ///
-///  * [RawKeyboard], which uses this interface to expose key data.
+///  * [HardwareKeyboard], which produces this event.
 class KeyUpEvent extends KeyEvent {
   /// Creates a key event that represents the user releasing a key.
   const KeyUpEvent({
@@ -163,8 +158,7 @@ class KeyUpEvent extends KeyEvent {
   }) : super(timestamp: timestamp, logicalKey: logicalKey, physicalKey: physicalKey);
 }
 
-/// The user has released a key on the keyboard after the current application
-/// lost focus.
+/// The user has released a key on the keyboard after Flutter lost input focus.
 ///
 /// This is effectively a key up event, but is generated because the application
 /// lost focus before the key was released, and so the key up event was
@@ -175,7 +169,7 @@ class KeyUpEvent extends KeyEvent {
 ///
 /// See also:
 ///
-///  * [RawKeyboard], which uses this interface to expose key data.
+///  * [HardwareKeyboard], which produces this event.
 class KeyCancelEvent extends KeyEvent {
   /// Creates a key event that represents the user releasing a key outside of
   /// the current focus.
@@ -198,7 +192,7 @@ class KeyCancelEvent extends KeyEvent {
 ///
 /// See also:
 ///
-///  * [RawKeyboard], which uses this interface to expose key data.
+///  * [HardwareKeyboard], which produces this event.
 class KeySyncEvent extends KeyEvent {
   /// Creates a key event that represents the user releasing a key outside of
   /// the current focus.
@@ -211,7 +205,7 @@ class KeySyncEvent extends KeyEvent {
 
 typedef HardwareKeyboardEventCallback = bool Function(KeyEvent event);
 
-/// An singleton interface for listening to raw key events.
+/// An singleton interface for listening to hardware key events.
 ///
 /// A [HardwareKeyboard] is useful for listening to key events and hardware
 /// buttons that are represented as keys. Typically used by games and other apps
@@ -221,16 +215,18 @@ typedef HardwareKeyboardEventCallback = bool Function(KeyEvent event);
 /// input method editors, software keyboards, platform key mappings, and other
 /// details need to be taken into account to provide a good experience for
 /// users. Consequently, using the events generated by this class to enter text
-/// is discouraged. Instead, use [EditableText] to receive text input.
+/// is discouraged. Instead, use [EditableText], [TextField], [TextFormField]
+/// and [CupertinoTextField] to receive text input.
 ///
-/// However, text input is not so useful for things like keyboard shortcuts and
-/// keyboard controlled gaming or editing. That is why this class exists.
+/// Processed text input is not as useful for things like keyboard shortcuts and
+/// keyboard-controlled gaming or other keyboard controlled apps. That is why
+/// this class exists.
 ///
 /// See also:
 ///
 ///  * [KeyDownEvent], [KeyUpEvent], [KeyCancelEvent], and [KeySyncEvent], the
 ///    classes used to describe specific key events.
-///  * [KeyboardListener], a widget that listens for key events.
+///  * [HardwareKeyboardListener], a widget that listens for hardware key events.
 ///  * [Shortcuts] and [Actions], widgets designed to allow binding sets of keys
 ///    to actions.
 class HardwareKeyboard {
@@ -260,75 +256,204 @@ class HardwareKeyboard {
   // of a focus change), packet.event may be null.
   //
   // Returns true if any [KeyboardListener] returned true.
-  KeyEventResponse handleKeyEvent(KeyEventPacket packet) {
-    KeyEvent event;
+  KeyEventResponse handleKeyEventPacket(KeyEventPacket packet) {
     switch (packet.eventType) {
       case KeyEventPacketType.down:
-        event = KeyDownEvent(logicalKey: packet.logicalKey, physicalKey: packet.physicalKey, timestamp: packet.timestamp, character: packet.character);
-        break;
+        final bool handled = simulateKeyDownEvent(
+          logicalKey: packet.logicalKey,
+          physicalKey: packet.physicalKey,
+          timestamp: packet.timestamp,
+          character: packet.character,
+        );
+        return handled ? KeyEventResponse.handled : KeyEventResponse.skip;
       case KeyEventPacketType.up:
-        event = KeyUpEvent(logicalKey: packet.logicalKey, physicalKey: packet.physicalKey, timestamp: packet.timestamp);
-        break;
-      case KeyEventPacketType.sync:
-        event = KeySyncEvent(logicalKey: packet.logicalKey, physicalKey: packet.physicalKey, timestamp: packet.timestamp);
-        break;
-      case KeyEventPacketType.cancel:
-        event = KeyCancelEvent(logicalKey: packet.logicalKey, physicalKey: packet.physicalKey, timestamp: packet.timestamp);
-      break;
-    }
-
-    // Update the state of the keyboard before sending the event to listeners,
-    // since the state should include the result of the event.
-    switch (packet.eventType) {
-      case KeyEventPacketType.down:
-      case KeyEventPacketType.sync:
-        _keysPressed.add(packet.logicalKey);
-        _physicalKeysPressed.add(packet.physicalKey);
-        break;
-      case KeyEventPacketType.up:
-      case KeyEventPacketType.cancel:
-        _keysPressed.remove(packet.logicalKey);
-        _physicalKeysPressed.remove(packet.physicalKey);
-        break;
-    }
-
-    if (_listeners.isEmpty) {
-        return KeyEventResponse.skip;
-    }
-
-    switch (packet.eventType) {
-      case KeyEventPacketType.down:
-      case KeyEventPacketType.up:
-        // Only key down/up can actually mark an event as "handled".  Sync and
-        // cancel always return "skip".
-        bool handled = false;
-        // Operate on a copy so that if listeners are removed during execution, the list is still sane.
-        for (final HardwareKeyboardEventCallback listener in List<HardwareKeyboardEventCallback>.from(_listeners)) {
-          if (_listeners.contains(listener)) {
-            if (listener(event) == true) {
-              handled = true;
-            }
-          }
-        }
+        final bool handled = simulateKeyUpEvent(
+          logicalKey: packet.logicalKey,
+          physicalKey: packet.physicalKey,
+          timestamp: packet.timestamp,
+        );
         return handled ? KeyEventResponse.handled : KeyEventResponse.skip;
       case KeyEventPacketType.sync:
+        simulateKeySyncEvent(
+          logicalKey: packet.logicalKey,
+          physicalKey: packet.physicalKey,
+          timestamp: packet.timestamp,
+        );
+        break;
       case KeyEventPacketType.cancel:
-        // Operate on a copy so that if listeners are removed during execution, the list is still sane.
-        for (final HardwareKeyboardEventCallback listener in List<HardwareKeyboardEventCallback>.from(_listeners)) {
-          if (_listeners.contains(listener)) {
-            listener(event);
-          }
-        }
+        simulateKeyCancelEvent(
+          logicalKey: packet.logicalKey,
+          physicalKey: packet.physicalKey,
+          timestamp: packet.timestamp,
+        );
         break;
     }
+    // Only key down/up can actually mark an event as handled.  Sync and cancel
+    // always return skip.
     return KeyEventResponse.skip;
   }
 
-  /// Returns true if the logical `key` is currently pressed.
+  // Distributes the given key event to listeners and returns whether or not one
+  // of them handled it.
+  bool _handleEvent(KeyEvent event) {
+    // Update the state of the keyboard before sending the event to listeners,
+    // since the state should include the result of the event.
+    if (event is KeyDownEvent || event is KeySyncEvent) {
+      _keysPressed.add(event.logicalKey);
+      _physicalKeysPressed.add(event.physicalKey);
+    } else if (event is KeyUpEvent || event is KeyCancelEvent) {
+      _keysPressed.remove(event.logicalKey);
+      _physicalKeysPressed.remove(event.physicalKey);
+    }
+
+    if (_listeners.isEmpty) {
+      return false;
+    }
+
+    bool handled = false;
+    // Operate on a copy so that if listeners are removed during execution, the list is still sane.
+    for (final HardwareKeyboardEventCallback listener in List<HardwareKeyboardEventCallback>.from(_listeners)) {
+      if (_listeners.contains(listener)) {
+        if (listener(event) == true) {
+          handled = true;
+        }
+      }
+    }
+
+    // Only key down/up can actually mark an event as handled.  Sync and cancel
+    // always return false.
+    return (event is KeyDownEvent || event is KeyUpEvent) && handled;
+  }
+
+  /// Simulates sending a hardware key down event through the system channel.
+  ///
+  /// This only simulates key presses coming from a physical keyboard, not from a
+  /// soft keyboard.
+  ///
+  /// See also:
+  ///
+  ///  - [simulateKeyUpEvent] to simulate a key up event.
+  ///  - [simulateKeySyncEvent] to simulate a key sync event.
+  ///  - [simulateKeyCancelEvent] to simulate a key cancel event.
+  bool simulateKeyDownEvent({
+    @required Duration timestamp,
+    @required LogicalKeyboardKey logicalKey,
+    @required PhysicalKeyboardKey physicalKey,
+    String character,
+  }) {
+    assert(timestamp != null);
+    assert(logicalKey != null);
+    assert(physicalKey != null);
+    return _handleEvent(
+      KeyDownEvent(
+        timestamp: timestamp,
+        logicalKey: logicalKey,
+        physicalKey: physicalKey,
+        character: character,
+      ),
+    );
+  }
+
+  /// Simulates sending a hardware key up event through the system channel.
+  ///
+  /// This only simulates key presses coming from a physical keyboard, not from a
+  /// soft keyboard.
+  ///
+  /// See also:
+  ///
+  ///  - [simulateKeyDownEvent] to simulate a key down event.
+  ///  - [simulateKeySyncEvent] to simulate a key sync event.
+  ///  - [simulateKeyCancelEvent] to simulate a key cancel event.
+  bool simulateKeyUpEvent({
+    @required Duration timestamp,
+    @required LogicalKeyboardKey logicalKey,
+    @required PhysicalKeyboardKey physicalKey,
+  }) {
+    assert(timestamp != null);
+    assert(logicalKey != null);
+    assert(physicalKey != null);
+    return _handleEvent(
+      KeyUpEvent(
+        timestamp: timestamp,
+        logicalKey: logicalKey,
+        physicalKey: physicalKey,
+      ),
+    );
+  }
+
+  /// Simulates sending a hardware key sync event through the system channel.
+  ///
+  /// This event typically happens when Flutter regains focus, and a key is
+  /// already being held down.
+  ///
+  /// This only simulates key presses coming from a physical keyboard, not from a
+  /// soft keyboard.
+  ///
+  /// Key sync events just add to the set of keys which Flutter thinks are pressed,
+  /// they shouldn't be handled as key down events.
+  ///
+  /// See also:
+  ///
+  ///  - [simulateKeyDownEvent] to simulate a key down event.
+  ///  - [simulateKeyUpEvent] to simulate a key up event.
+  ///  - [simulateKeySyncEvent] to simulate a key sync event.
+  ///  - [simulateKeyCancelEvent] to simulate a key cancel event.
+  void simulateKeySyncEvent({
+    @required Duration timestamp,
+    @required LogicalKeyboardKey logicalKey,
+    @required PhysicalKeyboardKey physicalKey,
+  }) {
+    assert(timestamp != null);
+    assert(logicalKey != null);
+    assert(physicalKey != null);
+    _handleEvent(
+      KeySyncEvent(
+        timestamp: timestamp,
+        logicalKey: logicalKey,
+        physicalKey: physicalKey,
+      ),
+    );
+  }
+
+  /// Simulates sending a hardware key cancel event through the system channel.
+  ///
+  /// This event typically happens when Flutter loses focus, and a key is
+  /// released while Flutter doesn't have focus.
+  ///
+  /// This only simulates key events coming from a physical keyboard, not from a
+  /// soft keyboard.
+  ///
+  /// Key cancel events just remove keys from the set of keys which Flutter
+  /// thinks are pressed, they shouldn't be handled as key up events.
+  ///
+  /// See also:
+  ///
+  ///  - [simulateKeyDownEvent] to simulate a key down event.
+  ///  - [simulateKeyUpEvent] to simulate a key up event.
+  ///  - [simulateKeySyncEvent] to simulate a key sync event.
+  void simulateKeyCancelEvent({
+    @required Duration timestamp,
+    @required LogicalKeyboardKey logicalKey,
+    @required PhysicalKeyboardKey physicalKey,
+  }) {
+    assert(timestamp != null);
+    assert(logicalKey != null);
+    assert(physicalKey != null);
+    _handleEvent(
+      KeyCancelEvent(
+        timestamp: timestamp,
+        logicalKey: logicalKey,
+        physicalKey: physicalKey,
+      ),
+    );
+  }
+
+  /// Returns true if the logical key, or any of its synonyms, is currently pressed.
   ///
   /// See also:
   ///
   ///  * [LogicalKeyboardKey] for information about what a logical key represents.
+  ///  * [LogicalKeyboardKey.synonyms] for information about key synonyms.
   bool isKeyPressed(LogicalKeyboardKey key) {
     return _keysPressed.intersection(<LogicalKeyboardKey>{key, ...key.synonyms}).isNotEmpty;
   }
@@ -343,13 +468,17 @@ class HardwareKeyboard {
   /// Returns true if a CTRL modifier key is pressed, regardless of which side
   /// of the keyboard it is on.
   ///
-  /// Use [isKeyPressed] if you need to know which control key was pressed.
+  /// Use [isKeyPressed] with [LogicalKeyboardKey.controlLeft] or
+  /// [LogicalKeyboardKey.controlRight] if you need to know which control key
+  /// was pressed.
   bool get isControlPressed => isKeyPressed(LogicalKeyboardKey.control);
 
   /// Returns true if a SHIFT modifier key is pressed, regardless of which side
   /// of the keyboard it is on.
   ///
-  /// Use [isKeyPressed] if you need to know which shift key was pressed.
+  /// Use [isKeyPressed] with [LogicalKeyboardKey.shiftLeft] or
+  /// [LogicalKeyboardKey.shiftRight] if you need to know which shift key
+  /// was pressed.
   bool get isShiftPressed => isKeyPressed(LogicalKeyboardKey.shift);
 
   /// Returns true if a ALT modifier key is pressed, regardless of which side
@@ -361,21 +490,27 @@ class HardwareKeyboard {
   /// `altGr`, a press of `altGr` will not return true here, and will need to be
   /// tested for separately.
   ///
-  /// Use [isKeyPressed] if you need to know which alt key was pressed.
+  /// Use [isKeyPressed] with [LogicalKeyboardKey.altLeft] or
+  /// [LogicalKeyboardKey.altRight] if you need to know which alt key was
+  /// pressed.
   bool get isAltPressed => isKeyPressed(LogicalKeyboardKey.alt);
 
   /// Returns true if a META modifier key is pressed, regardless of which side
   /// of the keyboard it is on.
   ///
-  /// Use [isKeyPressed] if you need to know which meta key was pressed.
+  /// Use [isKeyPressed] with [LogicalKeyboardKey.metaLeft] or
+  /// [LogicalKeyboardKey.metaRight] if you need to know which meta key was
+  /// pressed.
   bool get isMetaPressed => isKeyPressed(LogicalKeyboardKey.meta);
 
   /// Returns the set of logical keys currently pressed.
-  Set<LogicalKeyboardKey> get keysPressed => _keysPressed.toSet(); // Return a copy so it can't get messed up.
+  // Returns a copy so the internal set can't be modified.
+  Set<LogicalKeyboardKey> get keysPressed => _keysPressed.toSet();
   final Set<LogicalKeyboardKey> _keysPressed = <LogicalKeyboardKey>{};
 
   /// Returns the set of physical keys currently pressed.
-  Set<PhysicalKeyboardKey> get physicalKeysPressed => _physicalKeysPressed.toSet(); // Return a copy so it can't get messed up.
+  // Returns a copy so the internal set can't be modified.
+  Set<PhysicalKeyboardKey> get physicalKeysPressed => _physicalKeysPressed.toSet();
   final Set<PhysicalKeyboardKey> _physicalKeysPressed = <PhysicalKeyboardKey>{};
 
   /// Clears the list of keys returned from [keysPressed].

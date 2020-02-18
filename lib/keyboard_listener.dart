@@ -7,12 +7,12 @@ import 'package:flutter/widgets.dart';
 
 import 'hardware_keyboard.dart';
 
-/// A widget that calls a callback whenever the user presses or releases a key
-/// on a keyboard.
+/// A widget that calls a callback whenever it has focus and the user presses or
+/// releases a key on a keyboard.
 ///
-/// A [HardwareKeyboardListener] is useful for listening to raw key events and
-/// hardware buttons that are represented as keys. Typically used by games and
-/// other apps that use keyboards for purposes other than text entry.
+/// A [HardwareKeyboardListener] is useful for listening to hardware key events
+/// and hardware buttons that are represented as keys. Typically used by games
+/// and other apps that use keyboards for purposes other than text entry.
 ///
 /// For text entry, consider using a [EditableText], which integrates with
 /// on-screen keyboards and input method editors (IMEs).
@@ -22,7 +22,7 @@ import 'hardware_keyboard.dart';
 ///  * [EditableText], which should be used instead of this widget for text
 ///    entry.
 class HardwareKeyboardListener extends StatefulWidget {
-  /// Creates a widget that receives raw keyboard events.
+  /// Creates a widget that receives hardware keyboard events.
   ///
   /// For text entry, consider using a [EditableText], which integrates with
   /// on-screen keyboards and input method editors (IMEs).
@@ -35,7 +35,7 @@ class HardwareKeyboardListener extends StatefulWidget {
   }) : assert(child != null), 
        super(key: key);
 
-  /// Called whenever this widget receives a raw keyboard event.
+  /// Called whenever this widget receives a hardware keyboard event.
   ///
   /// Should return true if the key has been handled, and should not be
   /// propagated further.
