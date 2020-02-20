@@ -299,11 +299,9 @@ class HardwareKeyboard {
     // Update the state of the keyboard before sending the event to listeners,
     // since the state should include the result of the event.
     if (event is KeyDownEvent || event is KeySyncEvent) {
-      _keysPressed.add(event.logicalKey);
-      _physicalKeysPressed.add(event.physicalKey);
+      _keysDown[event.physicalKey] = event.logicalKey;
     } else if (event is KeyUpEvent || event is KeyCancelEvent) {
-      _keysPressed.remove(event.logicalKey);
-      _physicalKeysPressed.remove(event.physicalKey);
+      _keysDown.remove(event.physicalKey);
     }
 
     if (_listeners.isEmpty) {
@@ -450,12 +448,18 @@ class HardwareKeyboard {
 
   /// Returns true if the logical key, or any of its synonyms, is currently pressed.
   ///
+  /// Will also return true for the [LogicalKeyboardKey.synonyms] of keys which
+  /// have them. For example, testing for [LogicalKeyboardKey.shift] will return
+  /// true if [LogicalKeyboardKey.shiftLeft] or [LogicalKeyboardKey.shiftRight]
+  /// are pressed. Testing for [LogicalKeyboardKey.shiftLeft] specifically will
+  /// only return true if [LogicalKeyboardKey.shiftLeft] is pressed;
+  ///
   /// See also:
   ///
   ///  * [LogicalKeyboardKey] for information about what a logical key represents.
   ///  * [LogicalKeyboardKey.synonyms] for information about key synonyms.
   bool isKeyPressed(LogicalKeyboardKey key) {
-    return _keysPressed.intersection(<LogicalKeyboardKey>{key, ...key.synonyms}).isNotEmpty;
+    return keysPressed.intersection(<LogicalKeyboardKey>{key, ...key.synonyms}).isNotEmpty;
   }
 
   /// Returns true if the physical `key` is currently pressed.
@@ -463,7 +467,7 @@ class HardwareKeyboard {
   /// See also:
   ///
   ///  * [PhysicalKeyboardKey] for information about what a physical key represents.
-  bool isPhysicalKeyPressed(PhysicalKeyboardKey key) => _physicalKeysPressed.contains(key);
+  bool isPhysicalKeyPressed(PhysicalKeyboardKey key) => _keysDown.containsKey(key);
 
   /// Returns true if a CTRL modifier key is pressed, regardless of which side
   /// of the keyboard it is on.
@@ -503,32 +507,20 @@ class HardwareKeyboard {
   /// pressed.
   bool get isMetaPressed => isKeyPressed(LogicalKeyboardKey.meta);
 
-  /// Returns the set of logical keys currently pressed.
-  // Returns a copy so the internal set can't be modified.
-  Set<LogicalKeyboardKey> get keysPressed => _keysPressed.toSet();
-  final Set<LogicalKeyboardKey> _keysPressed = <LogicalKeyboardKey>{};
+  final Map<PhysicalKeyboardKey, LogicalKeyboardKey> _keysDown = <PhysicalKeyboardKey, LogicalKeyboardKey>{};
+
+  /// Returns the set of keys currently pressed.
+  Set<LogicalKeyboardKey> get keysPressed => _keysDown.values.toSet();
 
   /// Returns the set of physical keys currently pressed.
-  // Returns a copy so the internal set can't be modified.
-  Set<PhysicalKeyboardKey> get physicalKeysPressed => _physicalKeysPressed.toSet();
-  final Set<PhysicalKeyboardKey> _physicalKeysPressed = <PhysicalKeyboardKey>{};
+  Set<PhysicalKeyboardKey> get physicalKeysPressed => _keysDown.keys.toSet();
 
-  /// Clears the list of keys returned from [keysPressed].
+  /// Clears the list of keys returned from [keysPressed] and [physicalKeysPressed].
   ///
   /// This is used by the testing framework to make sure tests are hermetic.
   @visibleForTesting
   void clearKeysPressed() {
-    _keysPressed.clear();
-    // TODO(gspencergoog): Must we call the platform side to tell it to clear
-    // its state? This is just for tests, so maybe not...
-  }
-
-  /// Clears the list of keys returned from [physicalKeysPressed].
-  ///
-  /// This is used by the testing framework to make sure tests are hermetic.
-  @visibleForTesting
-  void clearPhysicalKeysPressed() {
-    _physicalKeysPressed.clear();
+    _keysDown.clear();
     // TODO(gspencergoog): Must we call the platform side to tell it to clear
     // its state? This is just for tests, so maybe not...
   }
