@@ -252,9 +252,6 @@ class HardwareKeyboard {
 
   // Called by the platform code to pass along a synchronous key event.
   //
-  // If the set of keys pressed changes when no event is fired (e.g. as a result
-  // of a focus change), packet.event may be null.
-  //
   // Returns true if any [KeyboardListener] returned true.
   KeyEventResponse handleKeyEventPacket(KeyEventPacket packet) {
     switch (packet.eventType) {
@@ -330,11 +327,14 @@ class HardwareKeyboard {
   /// This only simulates key presses coming from a physical keyboard, not from a
   /// soft keyboard.
   ///
+  /// It is intended for testing purposes only.
+  ///
   /// See also:
   ///
   ///  - [simulateKeyUpEvent] to simulate a key up event.
   ///  - [simulateKeySyncEvent] to simulate a key sync event.
   ///  - [simulateKeyCancelEvent] to simulate a key cancel event.
+  @visibleForTesting
   bool simulateKeyDownEvent({
     @required Duration timestamp,
     @required LogicalKeyboardKey logicalKey,
@@ -359,11 +359,14 @@ class HardwareKeyboard {
   /// This only simulates key presses coming from a physical keyboard, not from a
   /// soft keyboard.
   ///
+  /// It is intended for testing purposes only.
+  ///
   /// See also:
   ///
   ///  - [simulateKeyDownEvent] to simulate a key down event.
   ///  - [simulateKeySyncEvent] to simulate a key sync event.
   ///  - [simulateKeyCancelEvent] to simulate a key cancel event.
+  @visibleForTesting
   bool simulateKeyUpEvent({
     @required Duration timestamp,
     @required LogicalKeyboardKey logicalKey,
@@ -390,7 +393,9 @@ class HardwareKeyboard {
   /// soft keyboard.
   ///
   /// Key sync events just add to the set of keys which Flutter thinks are pressed,
-  /// they shouldn't be handled as key down events.
+  /// they shouldn't be handled as key down events, or generate user actions.
+  ///
+  /// It is intended for testing purposes only.
   ///
   /// See also:
   ///
@@ -398,6 +403,7 @@ class HardwareKeyboard {
   ///  - [simulateKeyUpEvent] to simulate a key up event.
   ///  - [simulateKeySyncEvent] to simulate a key sync event.
   ///  - [simulateKeyCancelEvent] to simulate a key cancel event.
+  @visibleForTesting
   void simulateKeySyncEvent({
     @required Duration timestamp,
     @required LogicalKeyboardKey logicalKey,
@@ -424,13 +430,17 @@ class HardwareKeyboard {
   /// soft keyboard.
   ///
   /// Key cancel events just remove keys from the set of keys which Flutter
-  /// thinks are pressed, they shouldn't be handled as key up events.
+  /// thinks are pressed, they shouldn't be handled as key up events, or
+  /// generate user actions.
+  ///
+  /// It is intended for testing purposes only.
   ///
   /// See also:
   ///
   ///  - [simulateKeyDownEvent] to simulate a key down event.
   ///  - [simulateKeyUpEvent] to simulate a key up event.
   ///  - [simulateKeySyncEvent] to simulate a key sync event.
+  @visibleForTesting
   void simulateKeyCancelEvent({
     @required Duration timestamp,
     @required LogicalKeyboardKey logicalKey,
